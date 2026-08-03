@@ -1,0 +1,14 @@
+# grout13
+
+Public Git/CDN module for compact JS13k-style atlas payloads.
+
+Browser global:
+`https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.global.min.js`
+
+Browser ESM:
+`https://cdn.jsdelivr.net/gh/Shoozes/grout13@main/dist/grout13.mjs`
+
+The reviewed facade exports the Grout13 v1 compiler, decoder, generated
+runtime-source helpers, and payload byte counter. Use the public Git artifact
+for preview/tiny-game delivery; npm is intentionally not the release path for
+this repository.

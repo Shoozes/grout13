@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grout13 CDN proof</title>
+<style>
+  body { font: 16px system-ui, sans-serif; margin: 2rem; background: #111; color: #eee; }
+  code, pre { color: #9fe870; }
+</style>
+<h1>grout13 CDN proof</h1>
+<p id="status">Loading the committed browser artifact.</p>
+<pre id="output"></pre>
+<script src="../dist/grout13.global.min.js"></script>
+<script>
+  const status = document.querySelector('#status');
+  const output = document.querySelector('#output');
+  const compiled = GROUT13.compileGrout13Atlas([
+    { name: 'pixel', spec: { w: 2, h: 2, steps: [{ type: 'fill', col: 1 }] } }
+  ]);
+  status.textContent = 'Loaded GROUT13 from the local dist artifact.';
+  output.textContent = JSON.stringify({
+    formatVersion: GROUT13.GROUT13_FORMAT_VERSION,
+    payloadBytes: GROUT13.getGrout13PayloadBytes(compiled.payload),
+    frames: compiled.frameOrder
+  }, null, 2);
+</script>

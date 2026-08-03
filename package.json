@@ -1,0 +1,50 @@
+{
+  "name": "grout13",
+  "version": "0.1.0",
+  "description": "Public Git module for compact JS13k-style atlas payloads and generated runtimes.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "main": "./dist/grout13.mjs",
+  "module": "./dist/grout13.mjs",
+  "types": "./types/grout13.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/grout13.d.ts",
+      "import": "./dist/grout13.mjs",
+      "default": "./dist/grout13.mjs"
+    },
+    "./global": "./dist/grout13.global.js",
+    "./global.min.js": "./dist/grout13.global.min.js",
+    "./types": "./types/grout13.d.ts",
+    "./package.json": "./package.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shoozes/grout13.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Shoozes/grout13/issues"
+  },
+  "homepage": "https://github.com/Shoozes/grout13",
+  "sideEffects": false,
+  "files": [
+    "dist/",
+    "types/",
+    "examples/",
+    "README.md",
+    "llms.txt",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build-runtime.mjs",
+    "test": "node scripts/test-runtime.mjs",
+    "verify": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
