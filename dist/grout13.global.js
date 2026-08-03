@@ -3217,6 +3217,7 @@ var GROUT13 = (() => {
     maxHeight: 512
   });
   var MAX_GROUT13_COLORS = GROUT13_ALPHABET.length - 1;
+  var MAX_GROUT13_DECODED_PIXELS = 16777216;
   function assertPositiveInteger2(value, label, max = 32768) {
     if (!Number.isInteger(value) || value <= 0 || value > max) {
       throw new Error(`${label} must be a positive integer <= ${max}`);
@@ -3440,9 +3441,17 @@ var GROUT13 = (() => {
       throw new Error("Grout13 metadata data must contain 8 values per frame");
     }
     const names = typeof namesText === "string" && namesText.length > 0 ? namesText.split("|") : [];
+    if (names.length > frameData.length / 4) {
+      throw new Error("Grout13 frame names contain more entries than frame data");
+    }
+    names.forEach((name, index) => assertGrout13Name(name, `Grout13 decoded frame ${index}`));
     const frames = {};
     for (let i = 0, frameIndex = 0; i < frameData.length; i += 4, frameIndex += 1) {
-      frames[names[frameIndex] || String(frameIndex)] = metadataData ? createFrameMetadata(frameData, metadataData, frameIndex, i) : {
+      const name = names[frameIndex] || String(frameIndex);
+      if (Object.prototype.hasOwnProperty.call(frames, name)) {
+        throw new Error(`Grout13 decoded frame name "${name}" is duplicated`);
+      }
+      frames[name] = metadataData ? createFrameMetadata(frameData, metadataData, frameIndex, i) : {
         x: frameData[i],
         y: frameData[i + 1],
         w: frameData[i + 2],
@@ -3478,8 +3487,12 @@ var GROUT13 = (() => {
     const [width, height, paletteHex, encoded, frameData, namesText = "", metadataData = null] = payload;
     assertPositiveInteger2(width, "Grout13 payload width");
     assertPositiveInteger2(height, "Grout13 payload height");
+    const pixelCount = width * height;
+    if (!Number.isSafeInteger(pixelCount) || pixelCount > MAX_GROUT13_DECODED_PIXELS) {
+      throw new Error(`Grout13 payload exceeds the ${MAX_GROUT13_DECODED_PIXELS}-pixel limit`);
+    }
     const palette = paletteHexToArray(paletteHex);
-    const indexed = decodeGrout13Runs(encoded, width * height);
+    const indexed = decodeGrout13Runs(encoded, pixelCount);
     const rgba = indexedToRgba(indexed, palette);
     const frames = createFramesObject(frameData, namesText, metadataData);
     const canvas = createCanvasFromRgba(width, height, rgba, options.canvasFactory);
