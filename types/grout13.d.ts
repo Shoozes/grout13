@@ -25,6 +25,7 @@ export interface Grout13AssetInput {
     spec: GroutSpec;
     pivot?: { x: number; y: number };
     animation?: Record<string, unknown>;
+    sequenceIndex?: number;
 }
 
 export interface Grout13AtlasOptions {
@@ -39,6 +40,7 @@ export interface Grout13AtlasOptions {
 
 export interface Grout13CompileOptions {
     palette?: number[];
+    strict?: boolean;
     includeNames?: boolean;
     forceIncludeNames?: boolean;
     atlasOptions?: Grout13AtlasOptions;

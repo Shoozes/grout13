@@ -1163,15 +1163,48 @@ function normalizeStep(step) {
   }
   return normalized;
 }
-function resolveSeqItem(spec, seqIndex) {
+function resolveSeqItem(spec, seqIndex, options = {}) {
   var _a;
+  const strict = options.strict === true;
   if (!spec || !Array.isArray(spec.sequence) || spec.sequence.length === 0) {
     return { frameIndex: 0, fx: false, fy: false, rot: 0, hue: 0, outline: null, mods: [] };
   }
-  const item = (_a = spec.sequence[seqIndex]) != null ? _a : spec.sequence[0];
-  if (typeof item === "object" && item) {
+  const sequenceLength = spec.sequence.length;
+  const frameLength = Array.isArray(spec.frames) ? spec.frames.length : 0;
+  if (!Number.isInteger(seqIndex)) {
+    if (strict) {
+      throw new Error(`Invalid sequence index: ${seqIndex} (must be an integer in range 0 <= index < ${sequenceLength})`);
+    }
+    seqIndex = 0;
+  }
+  const safeIndex = seqIndex;
+  const shouldFallback = !strict && (safeIndex < 0 || safeIndex >= sequenceLength);
+  if (strict && (safeIndex < 0 || safeIndex >= sequenceLength)) {
+    throw new Error(`Invalid sequence index: ${seqIndex} (must be 0 <= index < ${sequenceLength})`);
+  }
+  const item = sequenceLength > 0 ? spec.sequence[shouldFallback ? 0 : safeIndex] : 0;
+  if (typeof item === "object" && item !== null) {
+    if (strict && !Object.prototype.hasOwnProperty.call(item, "i")) {
+      throw new Error("Sequence item object must include an integer `i` frame index in strict mode");
+    }
+    if (strict && (typeof item.i !== "number" || !Number.isInteger(item.i))) {
+      throw new Error("Sequence item object must include an integer `i` frame index in strict mode");
+    }
+    if (item.i !== void 0 && item.i < 0) {
+      throw new Error(`Invalid sequence frame index: ${item.i}`);
+    }
+    if (item.i !== void 0 && typeof item.i !== "number") {
+      throw new Error("Sequence item `i` must be a frame index number");
+    }
+    const frameIndex = (_a = item.i) != null ? _a : 0;
+    if (strict && (typeof frameIndex !== "number" || !Number.isInteger(frameIndex))) {
+      throw new Error("Sequence item object must include an integer `i` frame index in strict mode");
+    }
+    if (strict && (frameIndex < 0 || frameIndex >= frameLength)) {
+      throw new Error(`Sequence item frame index ${frameIndex} is out of range`);
+    }
     return {
-      frameIndex: item.i,
+      frameIndex,
       fx: !!item.fx,
       fy: !!item.fy,
       rot: item.rot || 0,
@@ -1180,7 +1213,13 @@ function resolveSeqItem(spec, seqIndex) {
       mods: item.mods || []
     };
   }
-  return { frameIndex: item, fx: false, fy: false, rot: 0, hue: 0, outline: null, mods: [] };
+  if (strict && (typeof item !== "number" || !Number.isInteger(item))) {
+    throw new Error(`Invalid sequence item at index ${safeIndex}`);
+  }
+  if (strict && (item < 0 || item >= frameLength)) {
+    throw new Error(`Sequence item frame index ${item} is out of range`);
+  }
+  return { frameIndex: strict ? item : item || 0, fx: false, fy: false, rot: 0, hue: 0, outline: null, mods: [] };
 }
 var _stepCache = /* @__PURE__ */ new Map();
 var _STEP_CACHE_MAX_ENTRIES = 128;
@@ -1510,11 +1549,21 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
     if (typeof w !== "number" || typeof h !== "number" || w <= 0 || h <= 0) {
       throw new Error(`Invalid dimensions: width and height must be positive numbers (got w=${w}, h=${h})`);
     }
-    const { previewStep = null, palette = null, seed = null, layerProbabilities = {}, stepCache: useStepCache = false } = opts;
-    if (typeof seqIndex !== "number" || seqIndex < 0) {
+    const {
+      previewStep = null,
+      palette = null,
+      seed = null,
+      layerProbabilities = {},
+      stepCache: useStepCache = false,
+      strict = false
+    } = opts;
+    if (!Number.isInteger(seqIndex)) {
+      if (strict) {
+        throw new Error(`Invalid sequence index: ${seqIndex}`);
+      }
       seqIndex = 0;
     }
-    const { frameIndex, fx, fy, rot, hue, outline, mods } = resolveSeqItem(spec, seqIndex);
+    const { frameIndex, fx, fy, rot, hue, outline, mods } = resolveSeqItem(spec, seqIndex, { strict });
     const frame = (_a = spec.frames[frameIndex]) != null ? _a : spec.frames[0];
     if (!frame) {
       throw new Error(`Invalid frame index: ${frameIndex}`);
@@ -2016,6 +2065,9 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
     const runStep = (step) => {
       var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
       if (!step) return;
+      const strictFail = (message) => {
+        if (strict) throw new Error(message);
+      };
       step = normalizeStep(step);
       if (!step.type) return;
       const prevBlendMode = _blendMode;
@@ -2050,7 +2102,10 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
         if (step.type === "flood_fill") {
           const sx = step.x | 0;
           const sy = step.y | 0;
-          if (sx < 0 || sx >= w || sy < 0 || sy >= h) return;
+          if (sx < 0 || sx >= w || sy < 0 || sy >= h) {
+            strictFail("flood_fill start point is out of bounds");
+            return;
+          }
           const targetCol = out[sy * w + sx];
           if (targetCol === col) return;
           const stack = [sx, sy];
@@ -2088,7 +2143,10 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
               }
             }
           }
-          if (!data || !Array.isArray(data)) return;
+          if (!data || !Array.isArray(data)) {
+            strictFail("multi_plot step is missing coordinate data");
+            return;
+          }
           const pairCount = Math.floor(data.length / 2);
           for (let i = 0; i < pairCount; i++) {
             setPix(data[i * 2], data[i * 2 + 1], col);
@@ -2438,7 +2496,16 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
         }
         if (step.type === "sprite") {
           const { x = 0, y = 0, w: sw, h: sh, data } = step;
-          if (!data || !Array.isArray(data) || sw <= 0 || sh <= 0) return;
+          if (!Number.isInteger(sw) || !Number.isInteger(sh) || sw <= 0 || sh <= 0 || !data || !Array.isArray(data)) {
+            strictFail("sprite step requires positive w/h and array data");
+            return;
+          }
+          if (data.length < sw * sh) {
+            strictFail("sprite step data length is too short for sprite dimensions");
+            if (!strict) {
+              return;
+            }
+          }
           const dataLen = data.length;
           for (let py = 0; py < sh; py++) {
             for (let px = 0; px < sw; px++) {
@@ -2452,12 +2519,22 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
         }
         if (step.type === "sprite_packed") {
           const { x = 0, y = 0, w: sw, h: sh, col: col2, data } = step;
-          if (!sw || !sh || sw <= 0 || sh <= 0) return;
+          if (!Number.isInteger(sw) || !Number.isInteger(sh) || sw <= 0 || sh <= 0) {
+            strictFail("sprite_packed step requires positive w/h");
+            return;
+          }
+          if (typeof data !== "string" || data.length === 0) {
+            strictFail("sprite_packed step requires packed data");
+            return;
+          }
           const totalPixels = sw * sh;
           const hexLen = Math.ceil(totalPixels / 4);
           const paddedHex = (data || "").padEnd(hexLen, "0").slice(0, hexLen);
           const bits = unpackBits(paddedHex, hexLen * 4);
-          if (!bits) return;
+          if (!bits) {
+            strictFail("sprite_packed step contains invalid packed data");
+            return;
+          }
           for (let py = 0; py < sh; py++) {
             for (let px = 0; px < sw; px++) {
               const idx = py * sw + px;
@@ -2469,7 +2546,10 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
         }
         if (step.type === "linear_gradient") {
           const { x1, y1, x2, y2, stops } = step;
-          if (!stops || stops.length === 0) return;
+          if (!Array.isArray(stops) || stops.length === 0) {
+            strictFail("linear_gradient step requires a non-empty stops array");
+            return;
+          }
           const dx = x2 - x1;
           const dy = y2 - y1;
           const gradientLength = Math.sqrt(dx * dx + dy * dy);
@@ -2495,7 +2575,10 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
         }
         if (step.type === "radial_gradient") {
           const { cx, cy, r, stops } = step;
-          if (!stops || stops.length === 0) return;
+          if (!Array.isArray(stops) || stops.length === 0) {
+            strictFail("radial_gradient step requires a non-empty stops array");
+            return;
+          }
           if (r <= 0) {
             const firstColor = stops[0].col !== void 0 ? stops[0].col : col;
             out.fill(firstColor);
@@ -2528,6 +2611,7 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
           }
           return;
         }
+        strictFail(`Unrecognized step type "${step.type}"`);
       } finally {
         _blendMode = prevBlendMode;
       }
@@ -2551,6 +2635,7 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
       try {
         runStep(steps[i]);
       } catch (error) {
+        if (strict) throw error;
         console.warn(`Error rendering step ${i}:`, error.message, steps[i]);
       }
       if (useStepCache && !hasProbability) {
@@ -2572,6 +2657,7 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
       try {
         runStep(previewStep);
       } catch (error) {
+        if (strict) throw error;
         console.warn("Error rendering preview step:", error.message);
       }
     }
@@ -3114,10 +3200,84 @@ function decodeGrout13Runs(encoded, pixelCount) {
   }
   return out;
 }
-function assertIdentifier(value, label) {
-  if (typeof value !== "string" || !/^[A-Za-z_$][\w$]*$/.test(value)) {
+var FORBIDDEN_GROUT13_NAME_LIST = [
+  .../* @__PURE__ */ new Set([
+    ...Object.getOwnPropertyNames(Object.prototype),
+    "__proto__",
+    "prototype"
+  ])
+];
+FORBIDDEN_GROUT13_NAME_LIST.sort();
+var FORBIDDEN_GROUT13_NAMES = Object.freeze(FORBIDDEN_GROUT13_NAME_LIST);
+var FORBIDDEN_GROUT13_NAME_SET = Object.freeze(new Set(FORBIDDEN_GROUT13_NAMES));
+function assertGrout13Name(value, label) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("|") || /[\r\n]/.test(value) || /<\/script/i.test(value) || FORBIDDEN_GROUT13_NAME_SET.has(value)) {
+    const reserved = FORBIDDEN_GROUT13_NAME_SET.has(value) ? `; reserved key "${value}" is not allowed` : "";
+    throw new Error(
+      `${label} must be a non-empty name without "|", line breaks, or "<\/script"${reserved}.`
+    );
+  }
+}
+var IDENTIFIER_RE = /^[A-Za-z_$][\w$]*$/;
+var RUN_PAIR_ERROR = "Grout13 run stream must contain count/color pairs";
+var RUN_VALUE_ERROR = "Grout13 run stream contains an unsupported character";
+function assertRuntimeIdentifier(value, label) {
+  assertGrout13Name(value, label);
+  if (!IDENTIFIER_RE.test(value)) {
     throw new Error(`${label} must be a valid JavaScript identifier`);
   }
+}
+function assertGrout13RuntimeMode(value, label, allowed) {
+  if (allowed.indexOf(value) === -1) {
+    throw new Error(`Grout13 ${label} must be ${allowed.map((item) => `"${item}"`).join(" or ")}`);
+  }
+}
+function createCanvasArgument(runtimeTarget, requireCanvas) {
+  if (runtimeTarget !== "canvas") return "";
+  return requireCanvas === true ? "C" : 'C=document.createElement("canvas")';
+}
+function createRuntimeFrameStore(targetExpr = "r", includeMetadata = false) {
+  if (!includeMetadata) {
+    return `for(i=0;i<f.length;i+=4,j++){s=n[j]||j;if(Object.prototype.hasOwnProperty.call(${targetExpr},s)){throw new Error("Grout13 frame names must be unique");}if(!Number.isInteger(f[i])||f[i]<0||!Number.isInteger(f[i+1])||f[i+1]<0||!Number.isInteger(f[i+2])||f[i+2]<=0||!Number.isInteger(f[i+3])||f[i+3]<=0){throw new Error("Grout13 decoded frame metadata must use integer geometry");}${targetExpr}[s]={x:f[i],y:f[i+1],w:f[i+2],h:f[i+3]}}`;
+  }
+  return `for(i=0;i<f.length;i+=4,j++){k=j*8;s=n[j]||j;if(Object.prototype.hasOwnProperty.call(${targetExpr},s)){throw new Error("Grout13 frame names must be unique");}x=f[i];y=f[i+1];w=f[i+2];h=f[i+3];if(!Number.isInteger(x)||x<0||!Number.isInteger(y)||y<0||!Number.isInteger(w)||w<=0||!Number.isInteger(h)||h<=0){throw new Error("Grout13 decoded frame metadata must use integer geometry");}a0=m[k];a1=m[k+1];a2=m[k+2];a3=m[k+3];a4=m[k+4];a5=m[k+5];a6=m[k+6];a7=m[k+7];sw=a0==null?w:a0;sh=a1==null?h:a1;tx=a2==null?0:a2;ty=a3==null?0:a3;tw=a4==null?w:a4;th=a5==null?h:a5;if(!Number.isInteger(sw)||sw<=0||!Number.isInteger(sh)||sh<=0||!Number.isInteger(tx)||tx<0||!Number.isInteger(ty)||ty<0||!Number.isInteger(tw)||tw<=0||!Number.isInteger(th)||th<=0){throw new Error("Grout13 decoded frame metadata must use integer values");}${targetExpr}[s]={x:x,y:y,w:w,h:h,sourceSize:{w:sw,h:sh},spriteSourceSize:{x:tx,y:ty,w:tw,h:th}};if(a6!=null||a7!=null){if(a6==null||a7==null||typeof a6!=="number"||typeof a7!=="number"||!Number.isFinite(a6)||!Number.isFinite(a7)){throw new Error("Grout13 decoded frame metadata must use finite pivot values");}${targetExpr}[s].pivot={x:a6,y:a7}}}`;
+}
+function createDrawLoop(mode) {
+  return mode === "row" ? 'if((o%W)+q>W)throw new Error("Grout13 row run exceeds width");x.fillStyle="#"+p.slice((z-1)*6,z*6),x.fillRect(o%W,o/W|0,q,1),o+=q' : 'x.fillStyle="#"+p.slice((z-1)*6,z*6);for(;q--;)x.fillRect(o%W,o/W|0,1,1),o++';
+}
+function createRunDecodeHeader() {
+  return `if((d.length&1)!==0){throw new Error("${RUN_PAIR_ERROR}");}`;
+}
+function createRunDecodeLoop(decodeBody) {
+  return `${createRunDecodeHeader()}for(;i<d.length;i+=2){q=a.indexOf(d[i]);if(q===-1){throw new Error("${RUN_VALUE_ERROR}");}z=a.indexOf(d[i+1]);if(z===-1){throw new Error("${RUN_VALUE_ERROR}");}q++;if(z){${decodeBody}}else{o+=q}}`;
+}
+function createNonCanvasSource(runtimeTarget, drawMode, functionName, frameMode, terse) {
+  const B = runtimeTarget === "indexed" ? "B=new Uint8Array(W*g[1]);" : "B=new Uint8ClampedArray(W*g[1]*4);";
+  const decodeBody = runtimeTarget === "indexed" ? "B.fill(z,o,o+q);o+=q" : "v=parseInt(p.slice((z-1)*6,z*6),16);for(;q--;){t=o++*4;B[t]=v>>16&255;B[t+1]=v>>8&255;B[t+2]=v&255;B[t+3]=255}";
+  const decodeSource = `${B}${createRunDecodeLoop(decodeBody)};`;
+  const rawReturn = runtimeTarget === "indexed" ? terse ? "[B,g[4]]" : "{width:W,height:g[1],indexed:B,palette:p,frames:g[4]}" : terse ? "[B,g[4]]" : "{width:W,height:g[1],rgba:B,frames:g[4]}";
+  const returnExpression = runtimeTarget === "indexed" ? terse ? "{w:W,h:g[1],i:B,p:p,f:r}" : "{width:W,height:g[1],indexed:B,palette:p,frames:r}" : terse ? "{w:W,h:g[1],r:B,p:p,f:r}" : "{width:W,height:g[1],rgba:B,frames:r}";
+  if (frameMode === "raw") {
+    return `function ${functionName}(g){let W=g[0],a="${GROUT13_ALPHABET}",p=g[2],d=g[3],i=0,o=0,q,z,B,v,t;${decodeSource}return${rawReturn}}`;
+  }
+  if (frameMode === "metadata") {
+    return `function ${functionName}(g){let W=g[0],a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),m=g[6]||[],r={},i=0,o=0,q=0,z=0,j=0,k=0,a0=0,a1=0,a2=0,a3=0,a4=0,a5=0,a6=0,a7=0,x=0,y=0,w=0,h=0,sw=0,sh=0,tx=0,ty=0,tw=0,th=0,s=null;${decodeSource}${createRuntimeFrameStore("r", true)}return${returnExpression}}`;
+  }
+  return `function ${functionName}(g){let W=g[0],a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),r={},i=0,o=0,q=0,z=0,j=0,s=0;${decodeSource}${createRuntimeFrameStore("r", false)};return${returnExpression}}`;
+}
+function createCanvasSource(runtimeTarget, drawMode, functionName, frameMode, terse, requireCanvas) {
+  const drawOpaque = createDrawLoop(drawMode);
+  const rawReturn = terse ? "[C,g[4]]" : "{canvas:C,frames:g[4]}";
+  const returnExpression = terse ? "{c:C,f:r}" : "{canvas:C,frames:r}";
+  const canvasArgument = createCanvasArgument(runtimeTarget, requireCanvas);
+  const decodeDraw = createRunDecodeLoop(drawOpaque);
+  if (frameMode === "raw") {
+    return `function ${functionName}(g,${canvasArgument}){let W=g[0],x,a="${GROUT13_ALPHABET}",p=g[2],d=g[3],i=0,o=0,q=0,z=0;C.width=W;C.height=g[1];x=C.getContext("2d");${decodeDraw};return${rawReturn}}`;
+  }
+  if (frameMode === "metadata") {
+    return `function ${functionName}(g,${canvasArgument}){let W=g[0],x,a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),m=g[6]||[],r={},i=0,o=0,q=0,z=0,j=0,k=0,a0=0,a1=0,a2=0,a3=0,a4=0,a5=0,a6=0,a7=0,y=0,w=0,h=0,sw=0,sh=0,tx=0,ty=0,tw=0,th=0,s=0;C.width=W;C.height=g[1];x=C.getContext("2d");${decodeDraw}${createRuntimeFrameStore("r", true)};return${returnExpression}}`;
+  }
+  return `function ${functionName}(g,${canvasArgument}){let W=g[0],x,a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),r={},i=0,o=0,q=0,z=0,j=0,s=0;C.width=W;C.height=g[1];x=C.getContext("2d");${decodeDraw}${createRuntimeFrameStore("r", false)};return${returnExpression}}`;
 }
 function createGrout13RuntimeSource(options = {}) {
   const functionName = options.functionName || "grout13";
@@ -3125,48 +3285,21 @@ function createGrout13RuntimeSource(options = {}) {
   const frameMode = options.frameMode || "object";
   const drawMode = options.drawMode || "pixel";
   const runtimeTarget = options.runtimeTarget || "canvas";
-  const canvasArgument = runtimeTarget === "canvas" ? options.requireCanvas === true ? "C" : 'C=document.createElement("canvas")' : "";
-  assertIdentifier(functionName, "Grout13 runtime functionName");
-  if (frameMode !== "object" && frameMode !== "raw" && frameMode !== "metadata") {
-    throw new Error('Grout13 runtime frameMode must be "object", "metadata", or "raw"');
-  }
-  if (drawMode !== "pixel" && drawMode !== "row") {
-    throw new Error('Grout13 runtime drawMode must be "pixel" or "row"');
-  }
-  if (runtimeTarget !== "canvas" && runtimeTarget !== "rgba" && runtimeTarget !== "indexed") {
-    throw new Error('Grout13 runtimeTarget must be "canvas", "rgba", or "indexed"');
-  }
+  assertRuntimeIdentifier(functionName, "Grout13 runtime functionName");
+  assertGrout13RuntimeMode(frameMode, "runtime frameMode", ["object", "raw", "metadata"]);
+  assertGrout13RuntimeMode(drawMode, "runtime drawMode", ["pixel", "row"]);
+  assertGrout13RuntimeMode(runtimeTarget, "runtimeTarget", ["canvas", "rgba", "indexed"]);
   if (runtimeTarget !== "canvas" && options.requireCanvas === true) {
     throw new Error("Grout13 byte-buffer runtime targets cannot require a canvas");
   }
-  if (runtimeTarget !== "canvas") {
-    const decodeBytes = runtimeTarget === "indexed" ? "B=new Uint8Array(W*g[1]);for(;i<d.length;i+=2){q=a.indexOf(d[i])+1;z=a.indexOf(d[i+1]);if(z)B.fill(z,o,o+q);o+=q}" : "B=new Uint8ClampedArray(W*g[1]*4);for(;i<d.length;i+=2){q=a.indexOf(d[i])+1;z=a.indexOf(d[i+1]);if(z){v=parseInt(p.slice((z-1)*6,z*6),16);for(;q--;){t=o++*4;B[t]=v>>16&255;B[t+1]=v>>8&255;B[t+2]=v&255;B[t+3]=255}}else o+=q}";
-    const rawReturnExpression = runtimeTarget === "indexed" ? terse ? "[B,g[4]]" : "{width:W,height:g[1],indexed:B,palette:p,frames:g[4]}" : terse ? "[B,g[4]]" : "{width:W,height:g[1],rgba:B,frames:g[4]}";
-    const returnExpression2 = runtimeTarget === "indexed" ? terse ? "{w:W,h:g[1],i:B,p:p,f:r}" : "{width:W,height:g[1],indexed:B,palette:p,frames:r}" : terse ? "{w:W,h:g[1],r:B,f:r}" : "{width:W,height:g[1],rgba:B,frames:r}";
-    if (frameMode === "raw") {
-      return `function ${functionName}(g){let W=g[0],a="${GROUT13_ALPHABET}",p=g[2],d=g[3],i=0,o=0,q,z,B,v,t;${decodeBytes}return${rawReturnExpression}}`;
-    }
-    if (frameMode === "metadata") {
-      return `function ${functionName}(g){let W=g[0],a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),m=g[6]||[],r={},i=0,o=0,q,z,j=0,k,e,B,v,t;${decodeBytes}for(i=0;i<f.length;i+=4,j++){k=j*8;e={x:f[i],y:f[i+1],w:f[i+2],h:f[i+3],sourceSize:{w:m[k]==null?f[i+2]:m[k],h:m[k+1]==null?f[i+3]:m[k+1]},spriteSourceSize:{x:m[k+2]||0,y:m[k+3]||0,w:m[k+4]==null?f[i+2]:m[k+4],h:m[k+5]==null?f[i+3]:m[k+5]}};if(m[k+6]!=null&&m[k+7]!=null)e.pivot={x:m[k+6],y:m[k+7]};r[n[j]||j]=e}return${returnExpression2}}`;
-    }
-    return `function ${functionName}(g){let W=g[0],a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),r={},i=0,o=0,q,z,j=0,B,v,t;${decodeBytes}for(i=0;i<f.length;i+=4,j++)r[n[j]||j]={x:f[i],y:f[i+1],w:f[i+2],h:f[i+3]};return${returnExpression2}}`;
-  }
-  const drawOpaque = drawMode === "row" ? 'x.fillStyle="#"+p.slice((z-1)*6,z*6),x.fillRect(o%W,o/W|0,q,1),o+=q' : 'x.fillStyle="#"+p.slice((z-1)*6,z*6);for(;q--;)x.fillRect(o%W,o/W|0,1,1),o++';
-  if (frameMode === "raw") {
-    const rawReturnExpression = terse ? "[C,g[4]]" : "{canvas:C,frames:g[4]}";
-    return `function ${functionName}(g,${canvasArgument}){let W=g[0],x,a="${GROUT13_ALPHABET}",p=g[2],d=g[3],i=0,o=0,q,z;C.width=W;C.height=g[1];x=C.getContext("2d");for(;i<d.length;i+=2){q=a.indexOf(d[i])+1;z=a.indexOf(d[i+1]);if(z){${drawOpaque}}else o+=q}return${rawReturnExpression}}`;
-  }
-  const returnExpression = terse ? "{c:C,f:r}" : "{canvas:C,frames:r}";
-  if (frameMode === "metadata") {
-    return `function ${functionName}(g,${canvasArgument}){let W=g[0],x,a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),m=g[6]||[],r={},i=0,o=0,q,z,j=0,k,e;C.width=W;C.height=g[1];x=C.getContext("2d");for(;i<d.length;i+=2){q=a.indexOf(d[i])+1;z=a.indexOf(d[i+1]);if(z){${drawOpaque}}else o+=q}for(i=0;i<f.length;i+=4,j++){k=j*8;e={x:f[i],y:f[i+1],w:f[i+2],h:f[i+3],sourceSize:{w:m[k]==null?f[i+2]:m[k],h:m[k+1]==null?f[i+3]:m[k+1]},spriteSourceSize:{x:m[k+2]||0,y:m[k+3]||0,w:m[k+4]==null?f[i+2]:m[k+4],h:m[k+5]==null?f[i+3]:m[k+5]}};if(m[k+6]!=null&&m[k+7]!=null)e.pivot={x:m[k+6],y:m[k+7]};r[n[j]||j]=e}return${returnExpression}}`;
-  }
-  return `function ${functionName}(g,${canvasArgument}){let W=g[0],x,a="${GROUT13_ALPHABET}",p=g[2],d=g[3],f=g[4],n=(g[5]||"").split("|"),r={},i=0,o=0,q,z,j=0;C.width=W;C.height=g[1];x=C.getContext("2d");for(;i<d.length;i+=2){q=a.indexOf(d[i])+1;z=a.indexOf(d[i+1]);if(z){${drawOpaque}}else o+=q}for(i=0;i<f.length;i+=4,j++)r[n[j]||j]={x:f[i],y:f[i+1],w:f[i+2],h:f[i+3]};return${returnExpression}}`;
+  const makeSource = runtimeTarget === "canvas" ? () => createCanvasSource(runtimeTarget, drawMode, functionName, frameMode, terse, options.requireCanvas === true) : () => createNonCanvasSource(runtimeTarget, drawMode, functionName, frameMode, terse);
+  return makeSource();
 }
 function createGrout13BundleSource(payload, options = {}) {
   const payloadName = options.payloadName || "G13";
   const functionName = options.functionName || "grout13";
-  assertIdentifier(payloadName, "Grout13 payloadName");
-  assertIdentifier(functionName, "Grout13 runtime functionName");
+  assertRuntimeIdentifier(payloadName, "Grout13 payloadName");
+  assertRuntimeIdentifier(functionName, "Grout13 runtime functionName");
   const source = `const ${payloadName}=${JSON.stringify(payload)};${createGrout13RuntimeSource({
     functionName,
     terse: options.terse === true,
@@ -3193,9 +3326,9 @@ function assertPositiveInteger2(value, label, max = 32768) {
     throw new Error(`${label} must be a positive integer <= ${max}`);
   }
 }
-function assertGrout13Name(value, label) {
-  if (typeof value !== "string" || value.length === 0 || value.includes("|") || /[\r\n]/.test(value) || /<\/script/i.test(value)) {
-    throw new Error(`${label} must be a non-empty name without "|", line breaks, or "<\/script"`);
+function assertNonNegativeInteger(value, label, max = 32768) {
+  if (!Number.isInteger(value) || value < 0 || value > max) {
+    throw new Error(`${label} must be a non-negative integer <= ${max}`);
   }
 }
 function utf8Bytes(text) {
@@ -3225,18 +3358,35 @@ function normalizePalette(palette) {
   return out;
 }
 function normalizeAsset(asset, index) {
+  var _a, _b;
   if (!asset || typeof asset !== "object") {
     throw new Error(`Grout13 asset ${index} must be an object`);
   }
   const spec = asset.spec || asset;
+  const sequenceIndex = (_a = asset.sequenceIndex) != null ? _a : 0;
+  if (!Number.isInteger(sequenceIndex) || sequenceIndex < 0) {
+    throw new Error(`Grout13 asset ${index} sequenceIndex must be a non-negative integer`);
+  }
+  if (spec && typeof spec === "object" && Array.isArray(spec.sequence) && sequenceIndex >= spec.sequence.length) {
+    throw new Error(`Grout13 asset ${index} sequenceIndex ${sequenceIndex} is out of range`);
+  }
   const name = asset.name || spec.name || `frame_${index}`;
   assertGrout13Name(name, `Grout13 asset ${index}`);
   return {
     name,
     spec,
     pivot: asset.pivot || spec.pivot,
-    animation: asset.animation || spec.animation
+    animation: asset.animation || spec.animation,
+    sequenceIndex: (_b = asset.sequenceIndex) != null ? _b : 0
   };
+}
+function assertDistinctFrameName(name, map, context) {
+  assertGrout13Name(name, `Grout13 ${context}`);
+  if (Object.prototype.hasOwnProperty.call(map, name)) {
+    throw new Error(`Grout13 ${context} name "${name}" is duplicated`);
+  }
+  map[name] = true;
+  return name;
 }
 function normalizeOptionalPoint(point, label) {
   if (point === void 0 || point === null) return void 0;
@@ -3245,9 +3395,44 @@ function normalizeOptionalPoint(point, label) {
   }
   return { x: point.x, y: point.y };
 }
-function renderAssetToRgbaFrame(asset, index) {
-  const { name, spec, pivot, animation } = normalizeAsset(asset, index);
-  const rendered = renderIndexBuffer(spec, 0);
+function decodeRenderedPaletteColor(palette, colorIndex, frameName) {
+  if (!Number.isInteger(colorIndex) || colorIndex < 0) {
+    throw new Error(`Grout13 asset ${frameName} uses an invalid color index`);
+  }
+  const value = palette[colorIndex];
+  if (colorIndex < 256) {
+    if (!Number.isInteger(value) || value < 0 || value > 16777215) {
+      throw new Error(`Grout13 asset ${frameName} uses color ${colorIndex}, which is not present in its palette`);
+    }
+    return {
+      r: value >> 16 & 255,
+      g: value >> 8 & 255,
+      b: value & 255,
+      alpha: 255
+    };
+  }
+  if (!Number.isInteger(value)) {
+    throw new Error(`Grout13 asset ${frameName} contains an invalid palette value`);
+  }
+  const entry = value >>> 0;
+  const alpha = entry & 255;
+  if (alpha === 0) {
+    return { r: 0, g: 0, b: 0, alpha: 0 };
+  }
+  if (alpha !== 255) {
+    throw new Error(`Grout13 asset ${frameName} contains a semi-transparent color token`);
+  }
+  return {
+    r: entry >>> 24 & 255,
+    g: entry >>> 16 & 255,
+    b: entry >>> 8 & 255,
+    alpha: 255
+  };
+}
+function renderAssetToRgbaFrame(asset, index, options = {}) {
+  const { name, spec, pivot, animation, sequenceIndex } = normalizeAsset(asset, index);
+  const renderStrict = options.strict === false ? false : true;
+  const rendered = renderIndexBuffer(spec, sequenceIndex, { strict: renderStrict });
   const buffer = rendered.buffer || rendered;
   const width = rendered.w || spec.w;
   const height = rendered.h || spec.h;
@@ -3257,10 +3442,8 @@ function renderAssetToRgbaFrame(asset, index) {
     throw new Error(`Grout13 asset ${name} rendered buffer length does not match dimensions`);
   }
   const palette = rendered.palette || (spec.customPalette ? [...spec.customPalette, ...DEFAULT_PALETTE_RGB24] : DEFAULT_PALETTE_RGB24);
-  for (const rgb of palette) {
-    if (!Number.isInteger(rgb) || rgb < 0 || rgb > 16777215) {
-      throw new Error(`Grout13 asset ${name} contains an invalid RGB24 palette entry`);
-    }
+  if (!Array.isArray(palette)) {
+    throw new Error(`Grout13 asset ${name} rendered without a palette`);
   }
   const rgba = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < buffer.length; i += 1) {
@@ -3270,14 +3453,15 @@ function renderAssetToRgbaFrame(asset, index) {
       rgba[offset + 3] = 0;
       continue;
     }
-    const rgb = palette[value];
-    if (!Number.isInteger(rgb)) {
-      throw new Error(`Grout13 asset ${name} uses color ${value}, which is not present in its palette`);
+    const entry = decodeRenderedPaletteColor(palette, value, name);
+    if (entry.alpha === 0) {
+      rgba[offset + 3] = 0;
+      continue;
     }
-    rgba[offset] = rgb >> 16 & 255;
-    rgba[offset + 1] = rgb >> 8 & 255;
-    rgba[offset + 2] = rgb & 255;
-    rgba[offset + 3] = 255;
+    rgba[offset] = entry.r;
+    rgba[offset + 1] = entry.g;
+    rgba[offset + 2] = entry.b;
+    rgba[offset + 3] = entry.alpha;
   }
   const frame = { name, width, height, rgba };
   const normalizedPivot = normalizeOptionalPoint(pivot, `Grout13 asset ${name} pivot`);
@@ -3382,24 +3566,75 @@ function indexedToRgba(indexed, palette) {
   }
   return rgba;
 }
+function readMetadataValue(metadataData, index, fallbackValue) {
+  if (!Array.isArray(metadataData)) {
+    return fallbackValue;
+  }
+  const value = metadataData[index];
+  return value === null || value === void 0 ? fallbackValue : value;
+}
 function createFrameMetadata(frameData, metadataData, frameIndex, offset) {
   const metaOffset = frameIndex * 8;
-  const sourceWidth = Array.isArray(metadataData) && Number.isFinite(metadataData[metaOffset]) ? metadataData[metaOffset] : frameData[offset + 2];
-  const sourceHeight = Array.isArray(metadataData) && Number.isFinite(metadataData[metaOffset + 1]) ? metadataData[metaOffset + 1] : frameData[offset + 3];
-  const trimX = Array.isArray(metadataData) && Number.isFinite(metadataData[metaOffset + 2]) ? metadataData[metaOffset + 2] : 0;
-  const trimY = Array.isArray(metadataData) && Number.isFinite(metadataData[metaOffset + 3]) ? metadataData[metaOffset + 3] : 0;
-  const trimWidth = Array.isArray(metadataData) && Number.isFinite(metadataData[metaOffset + 4]) ? metadataData[metaOffset + 4] : frameData[offset + 2];
-  const trimHeight = Array.isArray(metadataData) && Number.isFinite(metadataData[metaOffset + 5]) ? metadataData[metaOffset + 5] : frameData[offset + 3];
+  const x = frameData[offset];
+  const y = frameData[offset + 1];
+  const w = frameData[offset + 2];
+  const h = frameData[offset + 3];
+  assertNonNegativeInteger(x, `Grout13 decoded frame ${frameIndex} x`);
+  assertNonNegativeInteger(y, `Grout13 decoded frame ${frameIndex} y`);
+  assertPositiveInteger2(w, `Grout13 decoded frame ${frameIndex} w`);
+  assertPositiveInteger2(h, `Grout13 decoded frame ${frameIndex} h`);
+  const sourceWidth = readMetadataValue(metadataData, metaOffset, w);
+  const sourceHeight = readMetadataValue(metadataData, metaOffset + 1, h);
+  const trimX = readMetadataValue(metadataData, metaOffset + 2, 0);
+  const trimY = readMetadataValue(metadataData, metaOffset + 3, 0);
+  const trimWidth = readMetadataValue(metadataData, metaOffset + 4, w);
+  const trimHeight = readMetadataValue(metadataData, metaOffset + 5, h);
+  const metadataPivotX = readMetadataValue(metadataData, metaOffset + 6, null);
+  const metadataPivotY = readMetadataValue(metadataData, metaOffset + 7, null);
+  if (Array.isArray(metadataData)) {
+    if (!Number.isInteger(sourceWidth)) {
+      throw new Error(`Grout13 decoded frame ${frameIndex} sourceSize.w must be an integer`);
+    }
+    if (!Number.isInteger(sourceHeight)) {
+      throw new Error(`Grout13 decoded frame ${frameIndex} sourceSize.h must be an integer`);
+    }
+    if (!Number.isInteger(trimX)) {
+      throw new Error(`Grout13 decoded frame ${frameIndex} spriteSourceSize.x must be an integer`);
+    }
+    if (!Number.isInteger(trimY)) {
+      throw new Error(`Grout13 decoded frame ${frameIndex} spriteSourceSize.y must be an integer`);
+    }
+    if (!Number.isInteger(trimWidth)) {
+      throw new Error(`Grout13 decoded frame ${frameIndex} spriteSourceSize.w must be an integer`);
+    }
+    if (!Number.isInteger(trimHeight)) {
+      throw new Error(`Grout13 decoded frame ${frameIndex} spriteSourceSize.h must be an integer`);
+    }
+    if (metadataPivotX !== null) {
+      if (typeof metadataPivotX !== "number" || typeof metadataPivotY !== "number") {
+        throw new Error(`Grout13 decoded frame ${frameIndex} pivot must use finite numbers`);
+      }
+      if (!Number.isFinite(metadataPivotX) || !Number.isFinite(metadataPivotY)) {
+        throw new Error(`Grout13 decoded frame ${frameIndex} pivot must use finite numbers`);
+      }
+    }
+  }
+  assertPositiveInteger2(sourceWidth, `Grout13 decoded frame ${frameIndex} sourceSize.w`);
+  assertPositiveInteger2(sourceHeight, `Grout13 decoded frame ${frameIndex} sourceSize.h`);
+  assertNonNegativeInteger(trimX, `Grout13 decoded frame ${frameIndex} spriteSourceSize.x`);
+  assertNonNegativeInteger(trimY, `Grout13 decoded frame ${frameIndex} spriteSourceSize.y`);
+  assertPositiveInteger2(trimWidth, `Grout13 decoded frame ${frameIndex} spriteSourceSize.w`);
+  assertPositiveInteger2(trimHeight, `Grout13 decoded frame ${frameIndex} spriteSourceSize.h`);
   const frame = {
-    x: frameData[offset],
-    y: frameData[offset + 1],
-    w: frameData[offset + 2],
-    h: frameData[offset + 3],
+    x,
+    y,
+    w,
+    h,
     sourceSize: { w: sourceWidth, h: sourceHeight },
     spriteSourceSize: { x: trimX, y: trimY, w: trimWidth, h: trimHeight }
   };
-  if (Array.isArray(metadataData) && metadataData[metaOffset + 6] !== null && metadataData[metaOffset + 6] !== void 0 && metadataData[metaOffset + 7] !== null && metadataData[metaOffset + 7] !== void 0) {
-    frame.pivot = { x: metadataData[metaOffset + 6], y: metadataData[metaOffset + 7] };
+  if (Array.isArray(metadataData) && metadataPivotX !== null && metadataPivotY !== null) {
+    frame.pivot = { x: metadataPivotX, y: metadataPivotY };
   }
   return frame;
 }
@@ -3414,19 +3649,24 @@ function createFramesObject(frameData, namesText, metadataData = null) {
   if (names.length > frameData.length / 4) {
     throw new Error("Grout13 frame names contain more entries than frame data");
   }
-  names.forEach((name, index) => assertGrout13Name(name, `Grout13 decoded frame ${index}`));
+  const nameSet = /* @__PURE__ */ Object.create(null);
   const frames = {};
   for (let i = 0, frameIndex = 0; i < frameData.length; i += 4, frameIndex += 1) {
-    const name = names[frameIndex] || String(frameIndex);
-    if (Object.prototype.hasOwnProperty.call(frames, name)) {
-      throw new Error(`Grout13 decoded frame name "${name}" is duplicated`);
+    const rawName = names[frameIndex] || String(frameIndex);
+    const name = assertDistinctFrameName(rawName, nameSet, `decoded frame ${frameIndex}`);
+    if (metadataData) {
+      frames[name] = createFrameMetadata(frameData, metadataData, frameIndex, i);
+      continue;
     }
-    frames[name] = metadataData ? createFrameMetadata(frameData, metadataData, frameIndex, i) : {
-      x: frameData[i],
-      y: frameData[i + 1],
-      w: frameData[i + 2],
-      h: frameData[i + 3]
-    };
+    const x = frameData[i];
+    const y = frameData[i + 1];
+    const w = frameData[i + 2];
+    const h = frameData[i + 3];
+    assertNonNegativeInteger(x, `Grout13 decoded frame ${frameIndex} x`);
+    assertNonNegativeInteger(y, `Grout13 decoded frame ${frameIndex} y`);
+    assertPositiveInteger2(w, `Grout13 decoded frame ${frameIndex} w`);
+    assertPositiveInteger2(h, `Grout13 decoded frame ${frameIndex} h`);
+    frames[name] = { x, y, w, h };
   }
   return frames;
 }
@@ -3470,15 +3710,13 @@ function decodeGrout13Atlas(payload, options = {}) {
 }
 function createFrameIndexMetadata(frames) {
   const frameOrder = [];
-  const frameIndexMap = {};
+  const frameIndexMap = /* @__PURE__ */ Object.create(null);
+  const seenNames = /* @__PURE__ */ Object.create(null);
   for (let index = 0; index < frames.length; index += 1) {
     const name = frames[index].name;
-    assertGrout13Name(name, `Grout13 frame ${index}`);
-    if (Object.prototype.hasOwnProperty.call(frameIndexMap, name)) {
-      throw new Error(`Grout13 frame name "${name}" is duplicated`);
-    }
+    const canonicalName = assertDistinctFrameName(name, seenNames, `frame ${index}`);
     frameOrder.push(name);
-    frameIndexMap[name] = index;
+    frameIndexMap[canonicalName] = index;
   }
   return { frameOrder, frameIndexMap };
 }
@@ -3653,7 +3891,8 @@ function compileGrout13Atlas(assets, options = {}) {
   if (requestedResearchOption) {
     throw new Error(`Grout13 research option "${requestedResearchOption}" is only available from ./grout13/research.js`);
   }
-  const frames = assets.map(renderAssetToRgbaFrame);
+  const renderStrict = options.strict !== false;
+  const frames = assets.map((asset, index) => renderAssetToRgbaFrame(asset, index, { strict: renderStrict }));
   const atlasOptions = {
     ...DEFAULT_GROUT13_ATLAS_OPTIONS,
     ...options.atlasOptions || {}
