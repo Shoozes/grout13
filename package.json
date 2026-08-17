@@ -16,6 +16,11 @@
     },
     "./global": "./dist/grout13.global.js",
     "./global.min.js": "./dist/grout13.global.min.js",
+    "./font": {
+      "types": "./types/grout13-font.d.ts",
+      "import": "./dist/grout13-font.mjs",
+      "default": "./dist/grout13-font.mjs"
+    },
     "./types": "./types/grout13.d.ts",
     "./package.json": "./package.json"
   },

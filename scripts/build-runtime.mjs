@@ -43,4 +43,18 @@ await build({
   minify: true
 });
 
+const fontSource = path.join(root, 'src', 'grout13-font.mjs');
+if (fs.existsSync(fontSource)) {
+  await build({
+    entryPoints: [fontSource],
+    bundle: true,
+    platform: 'browser',
+    target: ['es2019'],
+    legalComments: 'inline',
+    logLevel: 'silent',
+    outfile: path.join(dist, 'grout13-font.mjs'),
+    format: 'esm'
+  });
+}
+
 console.log('Built grout13 ESM and browser-global artifacts.');
