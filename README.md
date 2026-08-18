@@ -52,6 +52,35 @@ can emit a matching small canvas, RGBA, or indexed runtime. Research-only
 layout and encoder candidates are intentionally excluded from this public
 facade.
 
+## Optional font compiler
+
+`grout13/font` is a build-time companion, not part of the eight-export core.
+It compiles pixel-glyph tables into a normal Grout13 atlas plus metrics. The
+browser game only needs the core decoder after the font payload is generated.
+
+```js
+import { compileFontAtlas, measureFontText } from 'grout13/font';
+
+const font = compileFontAtlas({
+  name: 'pixel-3x5',
+  sourceScale: 4,
+  tracking: 4,
+  lineHeight: 24,
+  fallback: '?',
+  glyphs: {
+    A: ['010', '101', '111', '101', '101'],
+    ' ': ['00', '00', '00', '00', '00'],
+    '?': ['111', '001', '010', '000', '010']
+  }
+});
+
+const size = measureFontText(font, 'A');
+```
+
+The font module imports `compileGrout13Atlas` from `./grout13.mjs`. It does
+not ship a second copy of the compiler. Core still does not export font
+helpers.
+
 ## Build and verify
 
 The committed `dist/` files are the consumable Git artifacts. To rebuild them

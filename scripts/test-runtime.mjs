@@ -41,6 +41,54 @@ for (const fileName of ['grout13.global.js', 'grout13.global.min.js']) {
   assert.ok(context.GROUT13, `${fileName} should expose GROUT13`);
   assert.equal(context.GROUT13.GROUT13_FORMAT_VERSION, 1);
   assert.equal(typeof context.GROUT13.compileGrout13Atlas, 'function');
+  assert.equal(typeof context.GROUT13.compileFontAtlas, 'undefined');
 }
 
-console.log('[OK] grout13 ESM and browser-global artifacts expose the reviewed facade');
+const expectedFontExports = [
+  'compileFontAtlas',
+  'glyphFrameName',
+  'glyphRowsToAsset',
+  'measureFontText'
+];
+const fontApi = await import(pathToFileURL(path.join(dist, 'grout13-font.mjs')).href);
+assert.deepEqual(Object.keys(fontApi).sort(), expectedFontExports.slice().sort());
+assert.equal(typeof moduleApi.compileFontAtlas, 'undefined');
+assert.equal(typeof moduleApi.measureFontText, 'undefined');
+
+const font = fontApi.compileFontAtlas({
+  name: 'pixel',
+  sourceScale: 1,
+  tracking: 1,
+  lineHeight: 6,
+  fallback: '?',
+  glyphs: {
+    A: ['010', '101', '111', '101', '101'],
+    ' ': ['00', '00', '00', '00', '00'],
+    '?': ['111', '001', '010', '000', '010']
+  }
+});
+assert.equal(font.name, 'pixel');
+assert.ok(font.glyphs.A.advance > 0);
+const measured = fontApi.measureFontText(font, 'A A');
+assert.ok(measured.width > 0);
+assert.equal(measured.height, 6);
+assert.equal(measured.characters, 3);
+
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const exportTargets = [
+  packageJson.exports['.'].import,
+  packageJson.exports['./global'],
+  packageJson.exports['./global.min.js'],
+  packageJson.exports['./font'].import,
+  packageJson.exports['./font'].types,
+  packageJson.exports['./types']
+];
+for (const relative of exportTargets) {
+  assert.ok(fs.existsSync(path.join(root, relative)), `missing package export target ${relative}`);
+}
+
+const fontSource = fs.readFileSync(path.join(dist, 'grout13-font.mjs'), 'utf8');
+assert.match(fontSource, /from\s+['"]\.\/grout13\.mjs['"]/);
+assert.ok(fontSource.length < 20_000, 'grout13/font must not rebundle the compiler');
+
+console.log('[OK] grout13 ESM, font, and browser-global artifacts expose the reviewed facade');
