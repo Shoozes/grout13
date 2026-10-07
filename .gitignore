@@ -1,4 +1,8 @@
 node_modules/
+/.runtime/
+/.artifacts/
+/.tools/.secrets/
+/.tools/secrets/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

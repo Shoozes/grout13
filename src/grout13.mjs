@@ -189,11 +189,108 @@ function colorValueToInternalRgba32(value) {
   return isColorToken(value) ? colorTokenToInternalRgba32(value) : legacyColorToInternalRgba32(value);
 }
 
+// src/core/buffer-transforms.js
+function rotateBuffer(buffer, w, h, degrees) {
+  if (!ArrayBuffer.isView(buffer) || typeof buffer.length !== "number") {
+    throw new Error("rotateBuffer requires a typed-array buffer");
+  }
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) {
+    throw new Error(`Invalid dimensions: width and height must be positive integers (got w=${w}, h=${h})`);
+  }
+  if (buffer.length !== w * h) {
+    throw new Error(`rotateBuffer buffer length must equal w * h (expected ${w * h}, got ${buffer.length})`);
+  }
+  if (!Number.isFinite(degrees) || !Number.isInteger(degrees)) {
+    throw new Error("rotateBuffer degrees must be a multiple of 90");
+  }
+  const rot = (degrees % 360 + 360) % 360;
+  if (![0, 90, 180, 270].includes(rot)) throw new Error("rotateBuffer degrees must be a multiple of 90");
+  if (rot === 0) return { buffer, w, h };
+  if (rot === 180) {
+    const out2 = new Int32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        out2[(h - 1 - y) * w + (w - 1 - x)] = buffer[y * w + x];
+      }
+    }
+    return { buffer: out2, w, h };
+  }
+  const newW = h;
+  const newH = w;
+  const out = new Int32Array(newW * newH);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const nx = rot === 90 ? h - 1 - y : y;
+      const ny = rot === 90 ? x : w - 1 - x;
+      out[ny * newW + nx] = buffer[y * w + x];
+    }
+  }
+  return { buffer: out, w: newW, h: newH };
+}
+function flipBuffer(buffer, w, h, flipX, flipY) {
+  if (!flipX && !flipY) return buffer;
+  const out = new Int32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const sx = flipX ? w - 1 - x : x;
+      const sy = flipY ? h - 1 - y : y;
+      out[y * w + x] = buffer[sy * w + sx];
+    }
+  }
+  return out;
+}
+function outlineBuffer(buffer, w, h, color = 0, thickness = 1) {
+  if (thickness < 1) return buffer;
+  const out = new Int32Array(buffer);
+  const edgePixels = /* @__PURE__ */ new Set();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const index = y * w + x;
+      if (buffer[index] === -1) continue;
+      let hasTransparentNeighbor = false;
+      for (let dy = -1; dy <= 1 && !hasTransparentNeighbor; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h || buffer[ny * w + nx] === -1) {
+            hasTransparentNeighbor = true;
+            break;
+          }
+        }
+      }
+      if (hasTransparentNeighbor) edgePixels.add(index);
+    }
+  }
+  for (const edgeIndex of edgePixels) {
+    const edgeX = edgeIndex % w;
+    const edgeY = Math.floor(edgeIndex / w);
+    for (let dy = -thickness; dy <= thickness; dy++) {
+      for (let dx = -thickness; dx <= thickness; dx++) {
+        if (Math.sqrt(dx * dx + dy * dy) > thickness) continue;
+        const x = edgeX + dx;
+        const y = edgeY + dy;
+        if (x >= 0 && x < w && y >= 0 && y < h && buffer[y * w + x] === -1) {
+          out[y * w + x] = color;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 // src/grout-core.js
 var MAX_RUNTIME_FRAMES = 256;
 var MAX_RUNTIME_STEPS = 5e4;
 var MAX_RUNTIME_SEQUENCE_ENTRIES = 1e4;
 var MAX_RUNTIME_PALETTE_ENTRIES = 256;
+function throwIfRenderCancelled(shouldCancel) {
+  if (typeof shouldCancel === "function" && shouldCancel()) {
+    const error = new Error("Render job cancelled");
+    error.code = "ERR_RENDER_CANCELLED";
+    throw error;
+  }
+}
 var DEFAULT_PALETTE_RGB24 = [
   // Basic colors (0-15) - Original palette maintained for backward compatibility
   0,
@@ -634,105 +731,6 @@ function shiftPaletteHue(palette, hueShift) {
   if (hueShift === 0) return palette;
   return palette.map((color) => shiftHue(color, hueShift));
 }
-function rotateBuffer(buffer, w, h, degrees) {
-  if (typeof w !== "number" || typeof h !== "number" || w <= 0 || h <= 0) {
-    throw new Error(`Invalid dimensions: width and height must be positive numbers (got w=${w}, h=${h})`);
-  }
-  const rot = (degrees % 360 + 360) % 360;
-  if (rot === 0) return { buffer, w, h };
-  if (rot === 180) {
-    const out2 = new Int32Array(w * h);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        out2[(h - 1 - y) * w + (w - 1 - x)] = buffer[y * w + x];
-      }
-    }
-    return { buffer: out2, w, h };
-  }
-  const newW = h;
-  const newH = w;
-  const out = new Int32Array(newW * newH);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let nx, ny;
-      if (rot === 90) {
-        nx = h - 1 - y;
-        ny = x;
-      } else {
-        nx = y;
-        ny = w - 1 - x;
-      }
-      out[ny * newW + nx] = buffer[y * w + x];
-    }
-  }
-  return { buffer: out, w: newW, h: newH };
-}
-function flipBuffer(buffer, w, h, flipX, flipY) {
-  if (!flipX && !flipY) return buffer;
-  const out = new Int32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const sx = flipX ? w - 1 - x : x;
-      const sy = flipY ? h - 1 - y : y;
-      out[y * w + x] = buffer[sy * w + sx];
-    }
-  }
-  return out;
-}
-function outlineBuffer(buffer, w, h, color = 0, thickness = 1) {
-  if (thickness < 1) return buffer;
-  const out = new Int32Array(buffer);
-  const edgePixels = /* @__PURE__ */ new Set();
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const idx = y * w + x;
-      const pixel = buffer[idx];
-      if (pixel !== -1) {
-        let hasTransparentNeighbor = false;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dx === 0 && dy === 0) continue;
-            const nx = x + dx;
-            const ny = y + dy;
-            if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-              const nidx = ny * w + nx;
-              if (buffer[nidx] === -1) {
-                hasTransparentNeighbor = true;
-                break;
-              }
-            } else {
-              hasTransparentNeighbor = true;
-              break;
-            }
-          }
-          if (hasTransparentNeighbor) break;
-        }
-        if (hasTransparentNeighbor) {
-          edgePixels.add(idx);
-        }
-      }
-    }
-  }
-  for (const edgeIdx of edgePixels) {
-    const ex = edgeIdx % w;
-    const ey = Math.floor(edgeIdx / w);
-    for (let dy = -thickness; dy <= thickness; dy++) {
-      for (let dx = -thickness; dx <= thickness; dx++) {
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > thickness) continue;
-        const nx = ex + dx;
-        const ny = ey + dy;
-        if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-          const nidx = ny * w + nx;
-          if (buffer[nidx] === -1) {
-            out[nidx] = color;
-          }
-        }
-      }
-    }
-  }
-  return out;
-}
 var SHORTHAND_MODS = {
   "x": "fx",
   // flip x
@@ -1125,9 +1123,13 @@ function normalizeStep(step) {
     normalized._pathString = normalized.d;
     delete normalized.d;
   }
-  if (normalized.type === "path_segments" && normalized.s && Array.isArray(normalized.s)) {
-    normalized._segments = normalized.s;
-    delete normalized.s;
+  if (normalized.type === "path_segments") {
+    const segments = Array.isArray(normalized.segments) ? normalized.segments : normalized.s;
+    if (Array.isArray(segments)) {
+      normalized._segments = segments;
+      delete normalized.segments;
+      delete normalized.s;
+    }
   }
   if (normalized.p !== void 0 && normalized.points === void 0) {
     normalized.points = normalized.p;
@@ -1550,6 +1552,8 @@ var BITMAP_TEXT_FONT_REGISTRY = /* @__PURE__ */ new Map([
 function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
   var _a, _b;
   try {
+    const shouldCancel = typeof opts.shouldCancel === "function" ? opts.shouldCancel : null;
+    throwIfRenderCancelled(shouldCancel);
     const spec = normalizeSpec(specInput);
     let { w, h } = spec;
     if (typeof w !== "number" || typeof h !== "number" || w <= 0 || h <= 0) {
@@ -2070,6 +2074,7 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
     };
     const runStep = (step) => {
       var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+      throwIfRenderCancelled(shouldCancel);
       if (!step) return;
       const strictFail = (message) => {
         if (strict) throw new Error(message);
@@ -2639,9 +2644,10 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
     }
     for (let i = startStep; i < steps.length; i++) {
       try {
+        throwIfRenderCancelled(shouldCancel);
         runStep(steps[i]);
       } catch (error) {
-        if (strict) throw error;
+        if (strict || (error == null ? void 0 : error.code) === "ERR_RENDER_CANCELLED") throw error;
         console.warn(`Error rendering step ${i}:`, error.message, steps[i]);
       }
       if (useStepCache && !hasProbability) {
@@ -2661,9 +2667,10 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
     }
     if (previewStep) {
       try {
+        throwIfRenderCancelled(shouldCancel);
         runStep(previewStep);
       } catch (error) {
-        if (strict) throw error;
+        if (strict || (error == null ? void 0 : error.code) === "ERR_RENDER_CANCELLED") throw error;
         console.warn("Error rendering preview step:", error.message);
       }
     }
@@ -2672,6 +2679,7 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
     let totalHueShift = hue;
     if (mods && mods.length > 0) {
       for (const mod of mods) {
+        throwIfRenderCancelled(shouldCancel);
         const parsed = parseModifier(mod);
         if (!parsed) continue;
         switch (parsed.type) {
@@ -2696,6 +2704,7 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
         }
       }
     } else {
+      throwIfRenderCancelled(shouldCancel);
       if (fx || fy) {
         out = flipBuffer(out, currentW, currentH, fx, fy);
       }
@@ -2733,12 +2742,21 @@ function renderIndexBuffer(specInput, seqIndex = 0, opts = {}) {
     }
     return result;
   } catch (error) {
-    throw new Error(`Rendering failed: ${error.message}`);
+    const wrapped = new Error(`Rendering failed: ${error.message}`);
+    if (error && error.code) wrapped.code = error.code;
+    throw wrapped;
   }
 }
 
 // src/atlas/rgba-atlas.js
 var MAX_RGBA_ATLAS_PIXELS = 16777216;
+function throwIfAtlasCancelled(shouldCancel) {
+  if (typeof shouldCancel === "function" && shouldCancel()) {
+    const error = new Error("Render job cancelled");
+    error.code = "ERR_RENDER_CANCELLED";
+    throw error;
+  }
+}
 function assertPositiveInt(value, name, max = 4096) {
   if (!Number.isInteger(value) || value <= 0 || value > max) {
     throw new Error(`${name} must be a positive integer <= ${max}, got ${value}`);
@@ -2771,9 +2789,10 @@ function normalizeRgbaFrame(frame, index) {
     animation: frame.animation ? { ...frame.animation } : void 0
   };
 }
-function validateAtlasPixelBudget(frames) {
+function validateAtlasPixelBudget(frames, shouldCancel) {
   let totalPixels = 0;
   frames.forEach((frame, index) => {
+    throwIfAtlasCancelled(shouldCancel);
     if (!frame || typeof frame !== "object") {
       throw new Error(`buildRgbaAtlas: frame at index ${index} must be an object`);
     }
@@ -2785,12 +2804,13 @@ function validateAtlasPixelBudget(frames) {
     }
   });
 }
-function findTrimBounds(frame) {
+function findTrimBounds(frame, shouldCancel) {
   let minX = frame.width;
   let minY = frame.height;
   let maxX = -1;
   let maxY = -1;
   for (let y = 0; y < frame.height; y++) {
+    throwIfAtlasCancelled(shouldCancel);
     for (let x = 0; x < frame.width; x++) {
       const alpha = frame.rgba[(y * frame.width + x) * 4 + 3];
       if (alpha > 0) {
@@ -2811,9 +2831,10 @@ function findTrimBounds(frame) {
     height: maxY - minY + 1
   };
 }
-function copyFrameRegion(source, srcX, srcY, width, height) {
+function copyFrameRegion(source, srcX, srcY, width, height, shouldCancel) {
   const out = new Uint8ClampedArray(width * height * 4);
   for (let y = 0; y < height; y++) {
+    throwIfAtlasCancelled(shouldCancel);
     for (let x = 0; x < width; x++) {
       const src = ((srcY + y) * source.width + (srcX + x)) * 4;
       const dst = (y * width + x) * 4;
@@ -2827,6 +2848,7 @@ function copyFrameRegion(source, srcX, srcY, width, height) {
 }
 function planAtlasPlacements(frames, options) {
   const { padding, extrude, layout, columns, maxWidth, maxHeight } = options;
+  const { shouldCancel } = options;
   const gutter = padding + extrude;
   const planned = frames.map((frame) => ({
     frame,
@@ -2837,6 +2859,7 @@ function planAtlasPlacements(frames, options) {
     y: 0
   }));
   planned.forEach((entry) => {
+    throwIfAtlasCancelled(shouldCancel);
     if (maxWidth && entry.slotWidth > maxWidth) {
       throw new Error(`buildRgbaAtlas: frame "${entry.frame.name}" slot width ${entry.slotWidth} exceeds maxWidth ${maxWidth}`);
     }
@@ -2868,6 +2891,7 @@ function planAtlasPlacements(frames, options) {
     let rowHeight = 0;
     let col = 0;
     planned.forEach((entry) => {
+      throwIfAtlasCancelled(shouldCancel);
       if (col >= cols) {
         x = 0;
         y += rowHeight;
@@ -2891,7 +2915,9 @@ function planAtlasPlacements(frames, options) {
     const placePackedEntry = (entry) => {
       let best = null;
       pages.forEach((page) => {
+        throwIfAtlasCancelled(shouldCancel);
         (page.freeRects || []).forEach((rect) => {
+          throwIfAtlasCancelled(shouldCancel);
           if (entry.slotWidth > rect.width || entry.slotHeight > rect.height) return;
           const remainingWidth = rect.width - entry.slotWidth;
           const remainingHeight = rect.height - entry.slotHeight;
@@ -2932,6 +2958,7 @@ function planAtlasPlacements(frames, options) {
     };
     planned.forEach(placePackedEntry);
     pages.forEach((page) => {
+      throwIfAtlasCancelled(shouldCancel);
       delete page.freeRects;
     });
   } else {
@@ -2939,6 +2966,7 @@ function planAtlasPlacements(frames, options) {
     let y = 0;
     let rowHeight = 0;
     planned.forEach((entry) => {
+      throwIfAtlasCancelled(shouldCancel);
       if (x > 0 && maxWidth && x + entry.slotWidth > maxWidth) {
         x = 0;
         y += rowHeight;
@@ -3018,15 +3046,17 @@ function getFramePixel(frame, x, y) {
   ];
 }
 function writeFrameWithExtrusion(atlasRgba, atlasWidth, placement, options) {
-  const { frame } = placement;
+  const { frame, shouldCancel } = placement;
   const frameX = placement.x + options.padding + options.extrude;
   const frameY = placement.y + options.padding + options.extrude;
   for (let y = 0; y < frame.height; y++) {
+    throwIfAtlasCancelled(shouldCancel);
     for (let x = 0; x < frame.width; x++) {
       setRgbaPixel(atlasRgba, atlasWidth, frameX + x, frameY + y, getFramePixel(frame, x, y));
     }
   }
   for (let e = 1; e <= options.extrude; e++) {
+    throwIfAtlasCancelled(shouldCancel);
     for (let y = 0; y < frame.height; y++) {
       setRgbaPixel(atlasRgba, atlasWidth, frameX - e, frameY + y, getFramePixel(frame, 0, y));
       setRgbaPixel(atlasRgba, atlasWidth, frameX + frame.width - 1 + e, frameY + y, getFramePixel(frame, frame.width - 1, y));
@@ -3043,13 +3073,15 @@ function writeFrameWithExtrusion(atlasRgba, atlasWidth, placement, options) {
 }
 function buildRgbaAtlas(frames, options = {}) {
   var _a, _b, _c, _d, _e;
+  const shouldCancel = typeof options.shouldCancel === "function" ? options.shouldCancel : null;
+  throwIfAtlasCancelled(shouldCancel);
   if (!Array.isArray(frames)) {
     throw new Error("buildRgbaAtlas: frames must be an array");
   }
   if (frames.length === 0) {
     throw new Error("buildRgbaAtlas: at least one frame is required");
   }
-  validateAtlasPixelBudget(frames);
+  validateAtlasPixelBudget(frames, shouldCancel);
   const padding = (_a = options.padding) != null ? _a : 0;
   const extrude = (_b = options.extrude) != null ? _b : 0;
   const layout = options.layout || "packed";
@@ -3067,11 +3099,12 @@ function buildRgbaAtlas(frames, options = {}) {
   const frameNames = /* @__PURE__ */ new Set();
   const prepared = frames.map((frame, index) => {
     const normalized = normalizeRgbaFrame(frame, index);
+    throwIfAtlasCancelled(shouldCancel);
     if (frameNames.has(normalized.name)) {
       throw new Error(`buildRgbaAtlas: frame name "${normalized.name}" is duplicated; frame names must be unique`);
     }
     frameNames.add(normalized.name);
-    const trim = options.trim ? findTrimBounds(normalized) : {
+    const trim = options.trim ? findTrimBounds(normalized, shouldCancel) : {
       x: 0,
       y: 0,
       width: normalized.width,
@@ -3082,7 +3115,7 @@ function buildRgbaAtlas(frames, options = {}) {
       sourceWidth: normalized.width,
       sourceHeight: normalized.height,
       sourceName: normalized.name,
-      rgba: copyFrameRegion(normalized, trim.x, trim.y, trim.width, trim.height),
+      rgba: copyFrameRegion(normalized, trim.x, trim.y, trim.width, trim.height, shouldCancel),
       width: trim.width,
       height: trim.height,
       trim
@@ -3094,21 +3127,26 @@ function buildRgbaAtlas(frames, options = {}) {
     layout,
     columns,
     maxWidth,
-    maxHeight
+    maxHeight,
+    shouldCancel
   });
   const atlasPixels = pages.reduce((sum, page) => sum + page.width * page.height, 0);
   if (!Number.isSafeInteger(atlasPixels) || atlasPixels > MAX_RGBA_ATLAS_PIXELS) {
     throw new Error(`buildRgbaAtlas: output pages must contain at most ${MAX_RGBA_ATLAS_PIXELS} decoded pixels in total`);
   }
-  const atlasPages = pages.map((page) => ({
-    index: page.index,
-    width: page.width,
-    height: page.height,
-    rgba: new Uint8ClampedArray(page.width * page.height * 4)
-  }));
+  const atlasPages = pages.map((page) => {
+    throwIfAtlasCancelled(shouldCancel);
+    return {
+      index: page.index,
+      width: page.width,
+      height: page.height,
+      rgba: new Uint8ClampedArray(page.width * page.height * 4)
+    };
+  });
   const atlasFrames = placements.map((placement) => {
+    throwIfAtlasCancelled(shouldCancel);
     const page = atlasPages[placement.pageIndex];
-    writeFrameWithExtrusion(page.rgba, page.width, placement, { padding, extrude });
+    writeFrameWithExtrusion(page.rgba, page.width, { ...placement, shouldCancel }, { padding, extrude });
     const frameX = placement.x + padding + extrude;
     const frameY = placement.y + padding + extrude;
     return {
@@ -3337,6 +3375,8 @@ var DEFAULT_GROUT13_ATLAS_OPTIONS = Object.freeze({
 });
 var MAX_GROUT13_COLORS = GROUT13_ALPHABET.length - 1;
 var MAX_GROUT13_DECODED_PIXELS = 16777216;
+var MAX_GROUT13_ASSETS = 256;
+var MAX_GROUT13_TOTAL_STEPS = 5e4;
 function assertPositiveInteger2(value, label, max = 32768) {
   if (!Number.isInteger(value) || value <= 0 || value > max) {
     throw new Error(`${label} must be a positive integer <= ${max}`);
@@ -3395,6 +3435,39 @@ function normalizeAsset(asset, index) {
     animation: asset.animation || spec.animation,
     sequenceIndex: (_b = asset.sequenceIndex) != null ? _b : 0
   };
+}
+function preflightGrout13Assets(assets) {
+  if (assets.length > MAX_GROUT13_ASSETS) {
+    throw new Error(`Grout13 compile input must contain at most ${MAX_GROUT13_ASSETS} assets`);
+  }
+  let totalPixels = 0;
+  let totalSteps = 0;
+  for (let index = 0; index < assets.length; index += 1) {
+    const normalized = normalizeAsset(assets[index], index);
+    let spec;
+    try {
+      const source = normalized.spec;
+      const clone = typeof structuredClone === "function" ? structuredClone(source) : JSON.parse(JSON.stringify(source));
+      spec = normalizeSpec(clone);
+    } catch (error) {
+      const reason = error && error.message ? error.message : String(error);
+      throw new Error(`Grout13 asset ${index} failed resource preflight: ${reason}`);
+    }
+    if (normalized.sequenceIndex >= spec.sequence.length) {
+      throw new Error(`Grout13 asset ${index} sequenceIndex ${normalized.sequenceIndex} is out of range`);
+    }
+    const pixels = spec.w * spec.h;
+    totalPixels += pixels;
+    if (!Number.isSafeInteger(totalPixels) || totalPixels > MAX_GROUT13_DECODED_PIXELS) {
+      throw new Error(`Grout13 compile input exceeds the ${MAX_GROUT13_DECODED_PIXELS}-pixel source budget`);
+    }
+    for (const frame of spec.frames) {
+      totalSteps += frame.steps.length;
+      if (totalSteps > MAX_GROUT13_TOTAL_STEPS) {
+        throw new Error(`Grout13 compile input must contain at most ${MAX_GROUT13_TOTAL_STEPS} drawing steps in total`);
+      }
+    }
+  }
 }
 function assertDistinctFrameName(name, map, context) {
   assertGrout13Name(name, `Grout13 ${context}`);
@@ -3907,6 +3980,7 @@ function compileGrout13Atlas(assets, options = {}) {
   if (requestedResearchOption) {
     throw new Error(`Grout13 research option "${requestedResearchOption}" is only available from ./grout13/research.js`);
   }
+  preflightGrout13Assets(assets);
   const renderStrict = options.strict !== false;
   const frames = assets.map((asset, index) => renderAssetToRgbaFrame(asset, index, { strict: renderStrict }));
   const atlasOptions = {

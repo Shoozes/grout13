@@ -10,8 +10,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = path.join(root, 'src', 'grout13.mjs');
 const dist = path.join(root, 'dist');
 
-fs.rmSync(dist, { recursive: true, force: true });
-fs.mkdirSync(dist, { recursive: true });
+const fontSource = path.join(root, 'src', 'grout13-font.mjs');
+if (!fs.existsSync(fontSource)) throw new Error('Missing required src/grout13-font.mjs');
+const outputs = [];
 
 const common = {
   entryPoints: [source],
@@ -19,45 +20,46 @@ const common = {
   platform: 'browser',
   target: ['es2019'],
   legalComments: 'inline',
-  logLevel: 'silent'
+  logLevel: 'silent',
+  write: false
 };
 
-await build({
+outputs.push(...(await build({
   ...common,
   outfile: path.join(dist, 'grout13.mjs'),
   format: 'esm'
-});
+})).outputFiles);
 
-await build({
+outputs.push(...(await build({
   ...common,
   outfile: path.join(dist, 'grout13.global.js'),
   format: 'iife',
   globalName: 'GROUT13'
-});
+})).outputFiles);
 
-await build({
+outputs.push(...(await build({
   ...common,
   outfile: path.join(dist, 'grout13.global.min.js'),
   format: 'iife',
   globalName: 'GROUT13',
   minify: true
-});
+})).outputFiles);
 
-const fontSource = path.join(root, 'src', 'grout13-font.mjs');
-if (!fs.existsSync(fontSource)) {
-  throw new Error('Missing required src/grout13-font.mjs');
-}
-
-await build({
+outputs.push(...(await build({
   entryPoints: [fontSource],
   bundle: true,
   platform: 'browser',
   target: ['es2019'],
   legalComments: 'inline',
   logLevel: 'silent',
+  write: false,
   outfile: path.join(dist, 'grout13-font.mjs'),
   format: 'esm',
   external: ['./grout13.mjs']
-});
+})).outputFiles);
+
+// Prepare every artifact before writing; leave unrelated dist files intact.
+fs.mkdirSync(dist, { recursive: true });
+for (const output of outputs) fs.writeFileSync(output.path, output.contents);
 
 console.log('Built grout13 ESM, font, and browser-global artifacts.');

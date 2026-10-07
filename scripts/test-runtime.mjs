@@ -20,6 +20,9 @@ const expectedExports = [
 const moduleApi = await import(pathToFileURL(path.join(dist, 'grout13.mjs')).href);
 assert.deepEqual(Object.keys(moduleApi).sort(), expectedExports.slice().sort());
 assert.equal(moduleApi.GROUT13_FORMAT_VERSION, 1);
+const pixels = Array.from({ length: 256 }, (_, i) => ({ name: `pixel-${i}`, spec: { w: 1, h: 1, steps: [{ type: 'fill', col: 1 }] } }));
+assert.equal(moduleApi.compileGrout13Atlas(pixels).frames.length, 256);
+assert.throws(() => moduleApi.compileGrout13Atlas([...pixels, { name: 'overflow', spec: { w: 1, h: 1, steps: [] } }]), /at most 256 assets/);
 
 const compiled = moduleApi.compileGrout13Atlas([
   {
@@ -39,9 +42,11 @@ for (const fileName of ['grout13.global.js', 'grout13.global.min.js']) {
   const context = {};
   vm.runInNewContext(fs.readFileSync(path.join(dist, fileName), 'utf8'), context, { filename: fileName });
   assert.ok(context.GROUT13, `${fileName} should expose GROUT13`);
+  assert.deepEqual(Object.keys(context.GROUT13).sort(), expectedExports.slice().sort());
   assert.equal(context.GROUT13.GROUT13_FORMAT_VERSION, 1);
   assert.equal(typeof context.GROUT13.compileGrout13Atlas, 'function');
   assert.equal(typeof context.GROUT13.compileFontAtlas, 'undefined');
+  assert.throws(() => context.GROUT13.compileGrout13Atlas([...pixels, { name: 'overflow', spec: { w: 1, h: 1, steps: [] } }]), /at most 256 assets/);
 }
 
 const expectedFontExports = [

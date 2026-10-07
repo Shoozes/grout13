@@ -1,5 +1,44 @@
 # grout13
 
+## Role in our texture workflow
+
+This module delivers small pixel atlases; the separate texture project authors
+multi-channel surface materials, and GaimEngine receives ordinary assets.
+Existing example artwork is an unapproved study, independent of runtime readiness.
+
+| Source | Input → output | Evidence and limitation |
+| --- | --- | --- |
+| `src/grout13.mjs` → `dist/grout13.*` | Grout pixel recipes → indexed atlas and generated decoder | Artifact smoke passes; authored material channels are not its purpose |
+| `src/grout13-font.mjs` | Pixel glyphs → ordinary atlas + metrics | Separate facade; existing smoke verifies no compiler rebundling |
+| `scripts/build-runtime.mjs`, `test-runtime.mjs` | Canonical source → ESM/global artifacts and export proof | Build needs pinned esbuild; runtime has no npm/network dependency |
+
+The canonical compiler still lives in Grout-Library and is synchronized here.
+First qualify real pixel-asset delivery, then plan independence separately with
+an explicit parent/child ownership switch. Do not change both copies in parallel.
+Texture generation and pixel artwork refinement remain separate acceptance work.
+
+The 2026-10-07 local repair synchronized the parent's resource guards. Parent,
+child source, ESM and both browser globals now agree on the 256-asset,
+16,777,216-source-pixel and 50,000-step budgets. Exact atlas/runtime roundtrips
+and the eight-export facade are preserved. This verified batch is selected for
+authorized Git main publication; pin its resulting commit for reproducible
+receiving. CDN cache freshness is not independently asserted.
+
+From Grout-Library, the local working-copy command is:
+
+```bash
+node scripts/sync-grout13-module.js --sync --module-dir C:/DevStuff/grout13 --preserve README.md --preserve scripts/build-runtime.mjs --preserve scripts/test-runtime.mjs --preserve .gitignore --preserve .tools/gitpush.ps1
+```
+
+Use `--check` in place of `--sync` to verify without rebuilding. Origin, branch
+and named local-file guards remain active. Local overrides cannot publish;
+failed sync restores generated artifacts, and the builder preserves unrelated
+outputs. Source ownership remains in Grout-Library.
+
+AI-edited: 2026-10-07 | agent=Codex/root | model=unknown | effort=unknown | task=compiler-guard-alignment | change=recorded local canonical parity and preserved publication boundary
+
+AI-edited: 2026-10-07 | agent=Codex/root | model=unknown | effort=unknown | task=material-integrity | change=recorded verified compiler guard drift and bounded follow-up
+
 `grout13` is the public Git module for Grout's compact JS13k-style atlas
 compiler and generated runtime. It keeps the reviewed eight-export Grout13
 facade self-contained so a tiny-game project can load a browser artifact
@@ -92,3 +131,23 @@ npm run verify
 ```
 
 The module has no runtime dependency on npm, Phaser, or a network request.
+
+## Reviewed Git publication
+
+The local `.tools/gitpush.ps1` delegates to the qualified Grout-Library owner.
+Stage only reviewed named files and write a UTF-8 JSON allowlist, for example
+`{"paths":["README.md"]}`, under ignored `.artifacts`. Then use:
+
+```powershell
+pwsh -NoProfile -File .tools/gitpush.ps1 -PublisherRoot C:/DevStuff/Grout-Library -StagedOnly -Yes -Allowlist .artifacts/publication-paths.json -Message "Describe the verified change"
+```
+
+Existing main and the registered origin must agree after fetch. Unrelated
+staging, unsafe history and private paths are rejected; credentials stay in the
+parent. The owner tests pass 49 assertions on PowerShell 7 and 5.1. This saves
+Git progress only; npm publication and compiler independence remain separate.
+
+AI-edited: 2026-10-07 | agent=Codex/root | model=unknown | effort=unknown | task=texture-tools-publish | change=documented qualified parent delegation and selected compiler progress
+
+
+AI-edited: 2026-10-07 | agent=Codex/root | model=unknown | effort=unknown | task=texture-tools | change=recorded donor ownership, approval boundary and compiler qualification

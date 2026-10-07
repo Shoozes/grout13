@@ -41,7 +41,11 @@ export interface GroutGradientStop {
     offsetVariation?: GroutNumberRange;
 }
 
-export type GroutCompactDrawTuple = [GroutStepShorthand | GroutStepType, ...number[]];
+export type GroutCompactDrawTuple =
+    | ['t', GroutStepShorthand | GroutStepType]
+    | ['c', GroutColor]
+    | [GroutStepShorthand | GroutStepType, ...number[]]
+    | [number, ...number[]];
 export type GroutCompactDrawStream = GroutCompactDrawTuple[];
 
 /**
@@ -295,6 +299,30 @@ export interface ImageToGroutOptions {
     dither?: 'none' | 'floyd-steinberg';
     collapse?: boolean;
     usePacking?: boolean;
+    shapeDetection?: boolean;
+}
+
+export interface CompactGroutSpecOptions {
+    usePacking?: boolean;
+    stepFormat?: 'object' | 'stream' | 'auto';
+}
+
+export interface OptimizeSpecOptions extends CompactGroutSpecOptions {
+    flattenByColor?: boolean;
+    strategy?: 'semantic' | 'structural';
+    allowOverdraw?: boolean;
+    bakeDynamic?: boolean;
+    maxPixels?: number;
+}
+
+export interface FlattenLayersResult {
+    newSteps: GroutStep[];
+    flattened: number;
+    groups?: number;
+    colors?: GroutColor[];
+    compressed?: boolean;
+    details?: Array<{ color: GroutColor; count: number; compressed: boolean }>;
+    error?: string;
 }
 
 /**
@@ -712,7 +740,7 @@ export declare function groutToSvg(spec: GroutSpec, options?: GroutToSvgOptions)
 /**
  * Creates a compact Grout spec using shorthand notation.
  */
-export declare function compactGroutSpec(spec: GroutSpec): GroutSpec;
+export declare function compactGroutSpec(spec: GroutSpec, options?: CompactGroutSpecOptions): GroutSpec;
 
 /**
  * Converts SVG to compact Grout JSON string.
@@ -728,15 +756,15 @@ export declare function flattenLayersToPackedSprite(
     canvasWidth: number,
     canvasHeight: number,
     options?: { usePacking?: boolean }
-): GroutSpec;
+): FlattenLayersResult;
 
 /**
- * Optimizes a Grout spec for maximum compression.
- * Combines layer flattening by color with compact notation and sprite packing.
+ * Optimizes a Grout spec while preserving rendered output. Semantic compaction
+ * is the compatibility default; structural mode explicitly bakes visible output.
  */
 export declare function optimizeSpec(
     spec: GroutSpec,
-    options?: { usePacking?: boolean; flattenByColor?: boolean }
+    options?: OptimizeSpecOptions
 ): GroutSpec;
 
 // ============================================================================
