@@ -132,6 +132,13 @@ npm run verify
 
 The module has no runtime dependency on npm, Phaser, or a network request.
 
+## Reuse in exact pixel delivery
+
+Use the Grout-Library source roundtrip for recipe and decoded atlas equality.
+On this receiver, run [the runtime artifact smoke](scripts/test-runtime.mjs)
+for the shipped ESM and browser-global facade. The importing app owns
+frame offsets, scale, sampling and the rendered screenshot check.
+
 ## Reviewed Git publication
 
 The local `.tools/gitpush.ps1` delegates to the qualified Grout-Library owner.
@@ -151,3 +158,5 @@ AI-edited: 2026-10-07 | agent=Codex/root | model=unknown | effort=unknown | task
 
 
 AI-edited: 2026-10-07 | agent=Codex/root | model=unknown | effort=unknown | task=texture-tools | change=recorded donor ownership, approval boundary and compiler qualification
+
+AI-edited: 2026-11-14T11:14:04-05:00 | agent=Codex/root | task=clone-jutsu-study | change=record an evidence-backed reference workflow and replay
